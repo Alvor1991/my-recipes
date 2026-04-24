@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useEffect } from "react";
 
 const CATEGORIES = ["All", "Italian", "Asian", "Mexican", "Sides", "Dessert"];
 
@@ -124,7 +124,6 @@ const styles = `
   }
   .add-btn:hover { background: #b5813a; }
 
-  /* Search bar */
   .search-bar-wrap {
     margin-bottom: 32px;
     position: relative;
@@ -204,8 +203,6 @@ const styles = `
   .card-title { font-family: 'Playfair Display', serif; font-size: 22px; font-weight: 700; color: #1a1208; margin-bottom: 8px; line-height: 1.25; }
   .card-desc { font-size: 14px; color: #7a6a50; line-height: 1.5; font-weight: 300; margin-bottom: 16px; }
   .card-meta { display: flex; gap: 16px; font-size: 12px; color: #9a8a70; font-weight: 700; letter-spacing: 0.5px; }
-
-  /* Ingredient match highlight on card */
   .card-ingredient-match {
     font-size: 11px;
     font-weight: 700;
@@ -275,6 +272,19 @@ const styles = `
   .ingredients-list li { padding: 10px 0; border-bottom: 1px solid #f0e8d8; font-size: 15px; color: #3a2e1e; font-weight: 300; display: flex; align-items: center; gap: 10px; }
   .ingredients-list li::before { content: ''; width: 6px; height: 6px; background: #b5813a; border-radius: 50%; flex-shrink: 0; }
   .ingredients-list li.highlight { background: #fdf6ec; margin: 0 -8px; padding: 10px 8px; border-radius: 3px; font-weight: 700; color: #b5813a; }
+  .ingredients-list li.ingredients-subheading {
+    font-family: 'Playfair Display', serif;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: #b5813a;
+    border-bottom: none;
+    padding-top: 20px;
+    padding-bottom: 4px;
+    margin-top: 8px;
+  }
+  .ingredients-list li.ingredients-subheading::before { display: none; }
   .steps-list { list-style: none; counter-reset: steps; }
   .steps-list li { counter-increment: steps; padding: 0 0 24px 52px; position: relative; font-size: 15px; color: #3a2e1e; line-height: 1.65; font-weight: 300; }
   .steps-list li::before { content: counter(steps); position: absolute; left: 0; top: 0; width: 34px; height: 34px; background: #1a1208; color: #faf8f4; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-family: 'Playfair Display', serif; font-size: 15px; font-weight: 700; }
@@ -306,29 +316,20 @@ const styles = `
   .btn-delete-confirm:hover { background: #a04848; }
 
   .empty { text-align: center; padding: 80px 20px; font-family: 'Playfair Display', serif; font-size: 20px; color: #b5a88a; font-style: italic; }
+
+  .saving-indicator { position: fixed; bottom: 20px; right: 20px; background: #1a1208; color: #faf8f4; padding: 10px 20px; border-radius: 30px; font-size: 12px; font-weight: 700; letter-spacing: 1px; opacity: 0; transition: opacity 0.3s; pointer-events: none; }
+  .saving-indicator.visible { opacity: 1; }
+
+  .ingredients-hint { font-size: 12px; color: #9a8a70; margin-top: 6px; font-style: italic; }
 `;
 
 const categoryEmoji = { Italian: "🍝", Asian: "🥢", Mexican: "🌮", Sides: "🥗", Dessert: "🍰", default: "🍴" };
 const emptyForm = { title: "", category: "Italian", time: "", serves: "", description: "", ingredients: "", steps: "", image: null };
 
 export default function App() {
-  const [recipes, setRecipes] = useState(() => {
-    try {
-      const saved = localStorage.getItem("my-recipes");
-      return saved ? JSON.parse(saved) : initialRecipes;
-    } catch {
-      return initialRecipes;
-    }
-  });
-
-  React.useEffect(() => {
-    try {
-      localStorage.setItem("my-recipes", JSON.stringify(recipes));
-    } catch (e) {
-      console.error("Failed to save recipes:", e);
-    }
-  }, [recipes]);
-
+  const [recipes, setRecipes] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [activeCategory, setActiveCategory] = useState("All");
   const [searchQuery, setSearchQuery] = useState("");
   const [selected, setSelected] = useState(null);
@@ -337,17 +338,37 @@ export default function App() {
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [form, setForm] = useState(emptyForm);
 
-  // Filter by category first, then by ingredient search
-  const categoryFiltered = activeCategory === "All" ? recipes : recipes.filter(r => r.category === activeCategory);
+  useEffect(() => {
+    fetch("http://localhost:3001/api/recipes")
+      .then(res => res.json())
+      .then(data => {
+        setRecipes(data.length > 0 ? data : initialRecipes);
+        setLoading(false);
+      })
+      .catch(() => {
+        setRecipes(initialRecipes);
+        setLoading(false);
+      });
+  }, []);
+
+  useEffect(() => {
+    if (loading) return;
+    setSaving(true);
+    fetch("http://localhost:3001/api/recipes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(recipes)
+    })
+      .then(() => { setTimeout(() => setSaving(false), 1000); })
+      .catch(() => setSaving(false));
+  }, [recipes, loading]);
 
   const searchTrimmed = searchQuery.trim().toLowerCase();
+  const categoryFiltered = activeCategory === "All" ? recipes : recipes.filter(r => r.category === activeCategory);
   const filtered = searchTrimmed
-    ? categoryFiltered.filter(r =>
-        r.ingredients.some(ing => ing.toLowerCase().includes(searchTrimmed))
-      )
+    ? categoryFiltered.filter(r => r.ingredients.some(ing => ing.toLowerCase().includes(searchTrimmed)))
     : categoryFiltered;
 
-  // For each filtered recipe, find which ingredients matched
   const getMatchedIngredients = (recipe) => {
     if (!searchTrimmed) return [];
     return recipe.ingredients.filter(ing => ing.toLowerCase().includes(searchTrimmed));
@@ -412,10 +433,20 @@ export default function App() {
     setForm(emptyForm);
   };
 
+  if (loading) return (
+    <>
+      <style>{styles}</style>
+      <div className="app">
+        <div className="empty">Loading your recipes...</div>
+      </div>
+    </>
+  );
+
   return (
     <>
       <style>{styles}</style>
       <div className="app">
+        <div className={`saving-indicator${saving ? " visible" : ""}`}>Saving...</div>
 
         <header className="header">
           <div className="header-label">Home Cookbook</div>
@@ -442,17 +473,23 @@ export default function App() {
             <div className="detail-meta">
               <div><span><b>{selected.time}</b>Cook Time</span></div>
               <div><span><b>{selected.serves}</b>Servings</span></div>
-              <div><span><b>{selected.ingredients.length}</b>Ingredients</span></div>
+              <div><span><b>{selected.ingredients.filter(i => !i.startsWith("#")).length}</b>Ingredients</span></div>
             </div>
             <div className="detail-columns">
               <div>
                 <div className="detail-section-title">Ingredients</div>
                 <ul className="ingredients-list">
-                  {selected.ingredients.map((ing, i) => (
-                    <li key={i} className={searchTrimmed && ing.toLowerCase().includes(searchTrimmed) ? "highlight" : ""}>
-                      {ing}
-                    </li>
-                  ))}
+                  {selected.ingredients.map((ing, i) =>
+                    ing.startsWith("#") ? (
+                      <li key={i} className="ingredients-subheading">
+                        {ing.replace("#", "").trim()}
+                      </li>
+                    ) : (
+                      <li key={i} className={searchTrimmed && ing.toLowerCase().includes(searchTrimmed) ? "highlight" : ""}>
+                        {ing}
+                      </li>
+                    )
+                  )}
                 </ul>
               </div>
               <div>
@@ -463,7 +500,6 @@ export default function App() {
               </div>
             </div>
           </div>
-
         ) : (
           <>
             <div className="toolbar">
@@ -475,7 +511,6 @@ export default function App() {
               <button className="add-btn" onClick={() => setShowForm(true)}>+ Add Recipe</button>
             </div>
 
-            {/* Search bar */}
             <div className="search-bar-wrap">
               <span className="search-icon">🔍</span>
               <input
@@ -498,10 +533,8 @@ export default function App() {
               </div>
             )}
 
-            {filtered.length === 0 && !searchTrimmed
+            {filtered.length === 0
               ? <div className="empty">No {activeCategory} recipes yet — add one!</div>
-              : filtered.length === 0 && searchTrimmed
-              ? <div className="empty">No recipes found — try a different ingredient.</div>
               : (
                 <div className="grid">
                   {filtered.map(recipe => {
@@ -535,12 +568,10 @@ export default function App() {
           </>
         )}
 
-        {/* ADD / EDIT MODAL */}
         {showForm && (
           <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && handleCloseForm()}>
             <div className="modal">
               <h2>{editingRecipe ? "Edit Recipe" : "New Recipe"}</h2>
-
               <div className="form-group">
                 <label>Photo</label>
                 <div className="img-upload">
@@ -551,12 +582,10 @@ export default function App() {
                   <input type="file" accept="image/*" onChange={handleImageUpload} />
                 </div>
               </div>
-
               <div className="form-group">
                 <label>Recipe Name</label>
                 <input placeholder="e.g. Chicken Tikka Masala" value={form.title} onChange={e => setForm(f => ({...f, title: e.target.value}))} />
               </div>
-
               <div className="form-row">
                 <div className="form-group">
                   <label>Category</label>
@@ -573,7 +602,6 @@ export default function App() {
                   <input placeholder="e.g. 30 mins" value={form.time} onChange={e => setForm(f => ({...f, time: e.target.value}))} />
                 </div>
               </div>
-
               <div className="form-row">
                 <div className="form-group">
                   <label>Servings</label>
@@ -584,17 +612,19 @@ export default function App() {
                   <input placeholder="One line about the dish" value={form.description} onChange={e => setForm(f => ({...f, description: e.target.value}))} />
                 </div>
               </div>
-
               <div className="form-group">
                 <label>Ingredients (one per line)</label>
-                <textarea placeholder={"500g pasta\n2 garlic cloves\n..."} value={form.ingredients} onChange={e => setForm(f => ({...f, ingredients: e.target.value}))} />
+                <textarea
+                  placeholder={"500g pasta\n2 garlic cloves\n# For the sauce\n400g tinned tomatoes\n..."}
+                  value={form.ingredients}
+                  onChange={e => setForm(f => ({...f, ingredients: e.target.value}))}
+                />
+                <p className="ingredients-hint">Tip: start a line with # to create a section heading e.g. # For the sauce</p>
               </div>
-
               <div className="form-group">
                 <label>Steps (one per line)</label>
                 <textarea placeholder={"Boil the pasta\nMake the sauce\n..."} value={form.steps} onChange={e => setForm(f => ({...f, steps: e.target.value}))} style={{minHeight: 100}} />
               </div>
-
               <div className="modal-actions">
                 <button className="btn-cancel" onClick={handleCloseForm}>Cancel</button>
                 <button className="btn-primary" onClick={handleSubmit}>
@@ -605,7 +635,6 @@ export default function App() {
           </div>
         )}
 
-        {/* CONFIRM DELETE MODAL */}
         {confirmDelete && (
           <div className="modal-overlay" onClick={(e) => e.target === e.currentTarget && setConfirmDelete(null)}>
             <div className="confirm-modal">
