@@ -339,7 +339,7 @@ export default function App() {
   const [form, setForm] = useState(emptyForm);
 
   useEffect(() => {
-    fetch("http://localhost:3001/api/recipes")
+    fetch("http://localhost:3002/api/recipes")
       .then(res => res.json())
       .then(data => {
         setRecipes(data.length > 0 ? data : initialRecipes);
@@ -354,7 +354,7 @@ export default function App() {
   useEffect(() => {
     if (loading) return;
     setSaving(true);
-    fetch("http://localhost:3001/api/recipes", {
+    fetch("http://localhost:3002/api/recipes", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(recipes)
@@ -378,7 +378,28 @@ export default function App() {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (ev) => setForm(f => ({ ...f, image: ev.target.result }));
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const maxSize = 800;
+        let width = img.width;
+        let height = img.height;
+        if (width > height && width > maxSize) {
+          height = (height * maxSize) / width;
+          width = maxSize;
+        } else if (height > maxSize) {
+          width = (width * maxSize) / height;
+          height = maxSize;
+        }
+        canvas.width = width;
+        canvas.height = height;
+        canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+        const compressed = canvas.toDataURL("image/jpeg", 0.7);
+        setForm(f => ({ ...f, image: compressed }));
+      };
+      img.src = ev.target.result;
+    };
     reader.readAsDataURL(file);
   };
 

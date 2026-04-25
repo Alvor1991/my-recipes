@@ -32,6 +32,6 @@ app.post("/api/recipes", (req, res) => {
   }
 });
 
-app.listen(3001, () => {
-  console.log("Recipe server running on http://localhost:3001");
+app.listen(3002, () => {
+  console.log("Recipe server running on http://localhost:3002");
 });
